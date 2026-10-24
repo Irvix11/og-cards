@@ -47,6 +47,30 @@ class CardStoreTests(unittest.TestCase):
         self.assertEqual(profile["packs"], 0)
         self.assertEqual(profile["card_count"], 1)
 
+
+    def test_trade_accept_swaps_card_ownership(self):
+        card_a = self.store.add_card(10, 20, STARTER_CARDS[0])
+        card_b = self.store.add_card(10, 21, STARTER_CARDS[2])
+        offer = self.store.create_trade(10, 20, 21, card_a["instance_id"], card_b["instance_id"])
+        self.store.accept_trade(10, offer["trade_id"], 21)
+        self.assertEqual(self.store.get_collection(10, 20)[0]["instance_id"], card_b["instance_id"])
+        self.assertEqual(self.store.get_collection(10, 21)[0]["instance_id"], card_a["instance_id"])
+
+    def test_cards_in_pending_trade_are_locked(self):
+        a = self.store.add_card(10, 20, STARTER_CARDS[0])
+        b = self.store.add_card(10, 21, STARTER_CARDS[2])
+        c = self.store.add_card(10, 22, STARTER_CARDS[1])
+        self.store.create_trade(10, 20, 21, a["instance_id"], b["instance_id"])
+        with self.assertRaises(ValueError):
+            self.store.create_trade(10, 20, 22, a["instance_id"], c["instance_id"])
+
+    def test_only_recipient_can_accept_trade(self):
+        a = self.store.add_card(10, 20, STARTER_CARDS[0])
+        b = self.store.add_card(10, 21, STARTER_CARDS[2])
+        offer = self.store.create_trade(10, 20, 21, a["instance_id"], b["instance_id"])
+        with self.assertRaises(ValueError):
+            self.store.accept_trade(10, offer["trade_id"], 99)
+
     def test_duplicate_card_instances_are_allowed(self):
         card = STARTER_CARDS[0]
         first = self.store.add_card(3, 4, card)
