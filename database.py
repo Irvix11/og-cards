@@ -4,7 +4,7 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
-POINTS_PER_PACK = 50_000
+POINTS_PER_PACK = 10_000
 RARITY_ODDS = {"Common": 50, "Rare": 27, "Epic": 15, "Legendary": 7, "Mythic": 1}
 
 STARTER_CARDS: list[dict[str, Any]] = [
@@ -39,7 +39,7 @@ class CardStore:
                     guild_id INTEGER NOT NULL,
                     user_id INTEGER NOT NULL,
                     points_total INTEGER NOT NULL DEFAULT 0 CHECK(points_total >= 0),
-                    points_progress INTEGER NOT NULL DEFAULT 0 CHECK(points_progress >= 0 AND points_progress < 50000),
+                    points_progress INTEGER NOT NULL DEFAULT 0 CHECK(points_progress >= 0 AND points_progress < 10000),
                     packs INTEGER NOT NULL DEFAULT 0 CHECK(packs >= 0),
                     PRIMARY KEY(guild_id, user_id)
                 );
@@ -56,6 +56,16 @@ class CardStore:
                     actor_id INTEGER NOT NULL, amount INTEGER NOT NULL CHECK(amount > 0),
                     reason TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
                 );
+                CREATE TABLE IF NOT EXISTS replay_submissions (
+                    submission_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    guild_id INTEGER NOT NULL, user_id INTEGER NOT NULL,
+                    replay_url TEXT NOT NULL, notes TEXT NOT NULL DEFAULT '',
+                    status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','approved','rejected')),
+                    reviewed_by INTEGER, review_note TEXT NOT NULL DEFAULT '',
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    reviewed_at TEXT
+                );
+                CREATE INDEX IF NOT EXISTS idx_replays_pending ON replay_submissions(guild_id, status, submission_id);
             """)
 
     @staticmethod
@@ -138,3 +148,45 @@ class CardStore:
         with self.connect() as db:
             rows = db.execute("SELECT user_id,actor_id,amount,reason FROM point_ledger WHERE guild_id=? ORDER BY id DESC LIMIT ?", (guild_id,limit)).fetchall()
             return [dict(row) for row in rows]
+
+    def submit_replay(self, guild_id: int, user_id: int, replay_url: str, notes: str = "") -> int:
+        with self.connect() as db:
+            cur = db.execute(
+                "INSERT INTO replay_submissions(guild_id,user_id,replay_url,notes) VALUES(?,?,?,?)",
+                (guild_id, user_id, replay_url, notes[:500]),
+            )
+            return int(cur.lastrowid)
+
+    def get_pending_replays(self, guild_id: int, limit: int = 15) -> list[dict[str, Any]]:
+        with self.connect() as db:
+            rows = db.execute(
+                "SELECT * FROM replay_submissions WHERE guild_id=? AND status='pending' ORDER BY submission_id LIMIT ?",
+                (guild_id, limit),
+            ).fetchall()
+            return [dict(row) for row in rows]
+
+    def review_replay(self, guild_id: int, submission_id: int, reviewer_id: int, approve: bool,
+                      review_note: str = "", card: dict[str, Any] | None = None) -> dict[str, Any] | None:
+        with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            submission = db.execute(
+                "SELECT * FROM replay_submissions WHERE guild_id=? AND submission_id=? AND status='pending'",
+                (guild_id, submission_id),
+            ).fetchone()
+            if submission is None:
+                return None
+            status = "approved" if approve else "rejected"
+            db.execute(
+                "UPDATE replay_submissions SET status=?,reviewed_by=?,review_note=?,reviewed_at=CURRENT_TIMESTAMP WHERE submission_id=?",
+                (status, reviewer_id, review_note[:500], submission_id),
+            )
+            result = {"submission": dict(submission), "status": status, "card": None}
+            if approve and card is not None:
+                cur = db.execute(
+                    """INSERT INTO card_instances(guild_id,owner_id,name,rarity,theme,edition,ovr,pac,atk,deff,skl)
+                    VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
+                    (guild_id, submission["user_id"], card["name"], card["rarity"], card["theme"], card["edition"],
+                     card["ovr"], card["pac"], card["atk"], card["deff"], card["skl"]),
+                )
+                result["card"] = {"instance_id": cur.lastrowid, **card}
+            return result
