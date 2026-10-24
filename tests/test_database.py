@@ -128,5 +128,19 @@ class CardStoreTests(unittest.TestCase):
         self.assertEqual(self.store.get_profile(3, 4)["card_count"], 2)
 
 
+    def test_admin_pack_grant_updates_balance_and_audit(self):
+        total = self.store.grant_packs(1, 2, 3, 9, "event reward")
+        self.assertEqual(total, 3)
+        self.assertEqual(self.store.get_profile(1, 2)["packs"], 3)
+        entry = self.store.get_recent_pack_grants(1)[0]
+        self.assertEqual(entry["user_id"], 2)
+        self.assertEqual(entry["actor_id"], 9)
+        self.assertEqual(entry["amount"], 3)
+        self.assertEqual(entry["reason"], "event reward")
+
+    def test_admin_pack_grant_rejects_nonpositive_amount(self):
+        with self.assertRaisesRegex(ValueError, "positive"):
+            self.store.grant_packs(1, 2, 0, 9, "invalid")
+
 if __name__ == "__main__":
     unittest.main()
