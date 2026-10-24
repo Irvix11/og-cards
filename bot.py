@@ -132,7 +132,11 @@ async def collection(interaction: discord.Interaction, member: discord.Member | 
     else:
         for card in items:
             embed.add_field(name=f"#{card['instance_id']} • {card['name']}", value=f"{card['rarity']}  ·  **OVR {card['ovr']}**\n{card['theme']} · {card['edition']}", inline=True)
-    embed.set_footer(text=f"{BRAND}  •  Use /cards collection page:{page + 1} for the next page")
+    last_page = max(1, (total + 14) // 15)
+    if page < last_page:
+        embed.set_footer(text=f"{BRAND}  •  Next: /cards collection page:{page + 1}")
+    else:
+        embed.set_footer(text=f"{BRAND}  •  End of collection")
     await interaction.response.send_message(embed=embed, ephemeral=(member is None))
 
 
