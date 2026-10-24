@@ -35,7 +35,10 @@ RARITY_COLOURS = {
 
 def ui_embed(title: str, description: str = "", colour: discord.Color = discord.Color.dark_red()) -> discord.Embed:
     embed = discord.Embed(title=title, description=description, colour=colour)
-    embed.set_author(name="OG CARDS", icon_url=bot.user.display_avatar.url if bot.user else discord.Embed.Empty)
+    if bot.user:
+        embed.set_author(name="OG CARDS", icon_url=bot.user.display_avatar.url)
+    else:
+        embed.set_author(name="OG CARDS")
     embed.set_footer(text=BRAND)
     return embed
 
@@ -216,7 +219,10 @@ async def trade_accept(interaction: discord.Interaction, trade_id: app_commands.
         await interaction.response.send_message(str(exc), ephemeral=True)
         return
     a, b = result["proposer_card"], result["recipient_card"]
-    await interaction.response.send_message(f"**Trade #{trade_id} completed!** <@{result['proposer_id']}> received **{b['name']}** (card #{b['instance_id']}) and <@{result['recipient_id']}> received **{a['name']}** (card #{a['instance_id']}).")
+    embed = ui_embed(f"✓ Trade #{trade_id} Completed", "Both cards have been transferred successfully.", discord.Color.green())
+    embed.add_field(name=f"<@{result['proposer_id']}> received", value=f"**{b['name']}**\n{b['rarity']} · OVR {b['ovr']} · Card #{b['instance_id']}", inline=True)
+    embed.add_field(name=f"<@{result['recipient_id']}> received", value=f"**{a['name']}**\n{a['rarity']} · OVR {a['ovr']} · Card #{a['instance_id']}", inline=True)
+    await interaction.response.send_message(embed=embed)
 
 @trades.command(name="cancel", description="Cancel your outgoing offer or decline an incoming offer")
 @app_commands.describe(trade_id="Trade offer number")
