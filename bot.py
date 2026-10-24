@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import os
 import random
 from pathlib import Path
@@ -151,11 +152,29 @@ async def open_pack(interaction: discord.Interaction):
         await interaction.response.send_message("You don't have an unopened pack. Use /cards profile to check progress.", ephemeral=True)
         return
     colour = RARITY_COLOURS.get(rarity, discord.Color.dark_red())
+
+    # Animated pack-opening sequence. The card is safely saved before the reveal starts.
+    await interaction.response.defer(thinking=True)
+    animation_frames = [
+        ("▰━━━━━━━━━━━━━━▰", "A sealed OG pack appears...", discord.Color.dark_grey()),
+        ("▰━━━━━━ ◈ ━━━━━━▰", "Scanning the pack for a signature...", discord.Color.dark_red()),
+        ("▰━━━ ◈ ⚡ ◈ ━━━▰", "Energy levels rising. Something is inside.", discord.Color.from_rgb(150, 20, 35)),
+        ("✦  SIGNATURE LOCKED  ✦", f"**{rarity.upper()}** signature detected. Preparing reveal...", colour),
+    ]
+    for index, (title, description, frame_colour) in enumerate(animation_frames):
+        frame = ui_embed(f"〔 OG PACK OPENING 〕  {title}", description, frame_colour)
+        frame.set_thumbnail(url=interaction.user.display_avatar.url)
+        frame.set_footer(text=f"{BRAND}  •  Reveal sequence {index + 1}/{len(animation_frames)}")
+        await interaction.edit_original_response(embed=frame)
+        await asyncio.sleep(0.9 if index < 3 else 1.1)
+
     embed = ui_embed("✦ CARD DISCOVERED ✦", card_text(card), colour)
     embed.add_field(name="Card Number", value=f"**#{card['instance_id']}**", inline=True)
     embed.add_field(name="Rarity", value=f"**{rarity.upper()}**", inline=True)
-    embed.add_field(name="Collection", value=f"Use `/cards collection` to view your cards.", inline=False)
-    await interaction.response.send_message(embed=embed)
+    embed.add_field(name="Collection", value="Use `/cards collection` to view your cards.", inline=False)
+    embed.set_thumbnail(url=interaction.user.display_avatar.url)
+    embed.set_footer(text=f"{BRAND}  •  New card added to your collection")
+    await interaction.edit_original_response(embed=embed)
     if rarity in {"Epic", "Legendary", "Mythic"} and RARE_PULL_CHANNEL_ID.isdigit():
         channel = bot.get_channel(int(RARE_PULL_CHANNEL_ID))
         if channel is not None:
