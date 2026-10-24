@@ -94,6 +94,32 @@ class CardStoreTests(unittest.TestCase):
         history = self.store.get_trade_history(10, 20)
         self.assertEqual(history[0]["status"], "expired")
 
+
+    def test_trade_close_releases_card_lock(self):
+        a = self.store.add_card(10, 20, STARTER_CARDS[0])
+        b = self.store.add_card(10, 21, STARTER_CARDS[2])
+        c = self.store.add_card(10, 22, STARTER_CARDS[1])
+        offer = self.store.create_trade(10, 20, 21, a["instance_id"], b["instance_id"])
+        self.assertEqual(self.store.close_trade(10, offer["trade_id"], 20), "cancelled")
+        next_offer = self.store.create_trade(10, 20, 22, a["instance_id"], c["instance_id"])
+        self.assertIsNotNone(next_offer["trade_id"])
+
+    def test_only_trade_participants_can_close_offer(self):
+        a = self.store.add_card(10, 20, STARTER_CARDS[0])
+        b = self.store.add_card(10, 21, STARTER_CARDS[2])
+        offer = self.store.create_trade(10, 20, 21, a["instance_id"], b["instance_id"])
+        with self.assertRaisesRegex(ValueError, "involved"):
+            self.store.close_trade(10, offer["trade_id"], 99)
+
+    def test_expired_offers_are_cleaned_up_when_history_is_read(self):
+        a = self.store.add_card(10, 20, STARTER_CARDS[0])
+        b = self.store.add_card(10, 21, STARTER_CARDS[2])
+        offer = self.store.create_trade(10, 20, 21, a["instance_id"], b["instance_id"])
+        with self.store.connect() as db:
+            db.execute("UPDATE trades SET expires_at=datetime('now','-1 minute') WHERE trade_id=?", (offer["trade_id"],))
+        history = self.store.get_trade_history(10, 20)
+        self.assertEqual(history[0]["status"], "expired")
+
     def test_duplicate_card_instances_are_allowed(self):
         card = STARTER_CARDS[0]
         first = self.store.add_card(3, 4, card)
