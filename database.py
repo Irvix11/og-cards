@@ -56,6 +56,11 @@ class CardStore:
                     actor_id INTEGER NOT NULL, amount INTEGER NOT NULL CHECK(amount > 0),
                     reason TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
                 );
+                CREATE TABLE IF NOT EXISTS pack_grants (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT, guild_id INTEGER NOT NULL, user_id INTEGER NOT NULL,
+                    actor_id INTEGER NOT NULL, amount INTEGER NOT NULL CHECK(amount > 0),
+                    reason TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                );
                 CREATE TABLE IF NOT EXISTS trades (
                     trade_id INTEGER PRIMARY KEY AUTOINCREMENT,
                     guild_id INTEGER NOT NULL,
@@ -95,6 +100,37 @@ class CardStore:
             earned_packs, remainder = divmod(row["points_progress"] + amount, POINTS_PER_PACK)
             db.execute("UPDATE profiles SET points_total=?,points_progress=?,packs=? WHERE guild_id=? AND user_id=?", (row["points_total"]+amount,remainder,row["packs"]+earned_packs,guild_id,user_id))
             return earned_packs
+
+    def grant_packs(self, guild_id: int, user_id: int, amount: int, actor_id: int, reason: str) -> int:
+        """Grant unopened packs and record who granted them and why."""
+        if amount <= 0:
+            raise ValueError("Pack amount must be positive")
+        with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            self._ensure_profile(db, guild_id, user_id)
+            db.execute(
+                "UPDATE profiles SET packs=packs+? WHERE guild_id=? AND user_id=?",
+                (amount, guild_id, user_id),
+            )
+            db.execute(
+                "INSERT INTO pack_grants(guild_id,user_id,actor_id,amount,reason) VALUES(?,?,?,?,?)",
+                (guild_id, user_id, actor_id, amount, reason[:300]),
+            )
+            row = db.execute(
+                "SELECT packs FROM profiles WHERE guild_id=? AND user_id=?",
+                (guild_id, user_id),
+            ).fetchone()
+            return int(row["packs"])
+
+    def get_recent_pack_grants(self, guild_id: int | None, limit: int = 10) -> list[dict[str, Any]]:
+        if guild_id is None:
+            return []
+        with self.connect() as db:
+            rows = db.execute(
+                "SELECT user_id,actor_id,amount,reason,created_at FROM pack_grants WHERE guild_id=? ORDER BY id DESC LIMIT ?",
+                (guild_id, limit),
+            ).fetchall()
+            return [dict(row) for row in rows]
 
     def consume_pack(self, guild_id: int, user_id: int) -> bool:
         with self.connect() as db:
