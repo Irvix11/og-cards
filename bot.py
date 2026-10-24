@@ -22,6 +22,29 @@ bot = commands.Bot(command_prefix="!", intents=discord.Intents.default())
 store = CardStore(DB_PATH)
 
 
+
+BRAND = "OG CLAN • CARD COLLECTION"
+RARITY_COLOURS = {
+    "Common": discord.Color.light_grey(),
+    "Rare": discord.Color.blue(),
+    "Epic": discord.Color.purple(),
+    "Legendary": discord.Color.gold(),
+    "Mythic": discord.Color.from_rgb(235, 35, 55),
+}
+
+
+def ui_embed(title: str, description: str = "", colour: discord.Color = discord.Color.dark_red()) -> discord.Embed:
+    embed = discord.Embed(title=title, description=description, colour=colour)
+    embed.set_author(name="OG CARDS", icon_url=bot.user.display_avatar.url if bot.user else discord.Embed.Empty)
+    embed.set_footer(text=BRAND)
+    return embed
+
+
+def progress_bar(value: int, total: int, width: int = 14) -> str:
+    filled = min(width, int(value / total * width)) if total else width
+    return "▰" * filled + "▱" * (width - filled)
+
+
 def is_card_admin(interaction: discord.Interaction) -> bool:
     if interaction.guild is None or not isinstance(interaction.user, discord.Member):
         return False
@@ -70,18 +93,23 @@ bot.tree.add_command(cards)
 @cards.command(name="profile", description="View your points and pack progress")
 async def profile(interaction: discord.Interaction):
     p = store.get_profile(interaction.guild_id, interaction.user.id)
-    await interaction.response.send_message(
-        f"**{interaction.user.display_name} — OG Cards**\nPoints since launch: **{p['points_total']:,}**\n"
-        f"Unopened packs: **{p['packs']}**\nCards collected: **{p['card_count']}**\n"
-        f"Progress: **{p['progress']:,}/{POINTS_PER_PACK:,}** points", ephemeral=True)
+    embed = ui_embed(f"{interaction.user.display_name}'s Collection Profile", "Your OG Cards overview.", discord.Color.dark_red())
+    embed.set_thumbnail(url=interaction.user.display_avatar.url)
+    embed.add_field(name="Total Points", value=f"**{p['points_total']:,}**", inline=True)
+    embed.add_field(name="Unopened Packs", value=f"**{p['packs']}**", inline=True)
+    embed.add_field(name="Cards Owned", value=f"**{p['card_count']}**", inline=True)
+    embed.add_field(name="Next Pack Progress", value=f"{progress_bar(p['progress'], POINTS_PER_PACK)}\n**{p['progress']:,} / {POINTS_PER_PACK:,}** points", inline=False)
+    await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
 @cards.command(name="progress", description="Check your progress toward the next pack")
 async def progress(interaction: discord.Interaction):
     p = store.get_profile(interaction.guild_id, interaction.user.id)
-    await interaction.response.send_message(
-        f"Progress: **{p['progress']:,}/{POINTS_PER_PACK:,}** points; **{POINTS_PER_PACK-p['progress']:,}** points to next pack.",
-        ephemeral=True)
+    embed = ui_embed("Pack Progress", "Keep earning OG points to unlock your next pack.")
+    embed.add_field(name="Progress", value=f"{progress_bar(p['progress'], POINTS_PER_PACK)}\n**{p['progress']:,} / {POINTS_PER_PACK:,}**", inline=False)
+    embed.add_field(name="Points Remaining", value=f"**{POINTS_PER_PACK-p['progress']:,}**", inline=True)
+    embed.add_field(name="Ready to Open", value=f"**{p['packs']} pack(s)**", inline=True)
+    await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
 @cards.command(name="collection", description="View your collection or another member's collection")
@@ -89,17 +117,23 @@ async def progress(interaction: discord.Interaction):
 async def collection(interaction: discord.Interaction, member: discord.Member | None = None):
     target = member or interaction.user
     items = store.get_collection(interaction.guild_id, target.id)
+    embed = ui_embed(f"{target.display_name}'s Card Collection", f"Showing up to {len(items)} most recent card(s).")
+    embed.set_thumbnail(url=target.display_avatar.url)
     if not items:
-        await interaction.response.send_message(f"{target.display_name} has no cards yet. Earn points and open a pack!", ephemeral=True)
-        return
-    lines = [f"**#{c['instance_id']} {c['name']}** · {c['rarity']} · OVR {c['ovr']}" for c in items]
-    await interaction.response.send_message(f"**{target.display_name}'s OG Cards**\n" + "\n".join(lines), ephemeral=(member is None))
+        embed.description = "No cards collected yet. Earn points, unlock a pack, and start building your collection."
+    else:
+        for card in items[:15]:
+            embed.add_field(name=f"#{card['instance_id']} • {card['name']}", value=f"{card['rarity']}  ·  **OVR {card['ovr']}**\n{card['theme']} · {card['edition']}", inline=True)
+    await interaction.response.send_message(embed=embed, ephemeral=(member is None))
 
 
 @cards.command(name="catalogue", description="Browse the starter card catalogue")
 async def catalogue(interaction: discord.Interaction):
-    lines = [f"**{c['name']}** — {c['rarity']} · OVR {c['ovr']} · {c['theme']}" for c in STARTER_CARDS]
-    await interaction.response.send_message("**OG Cards Catalogue**\n" + "\n".join(lines), ephemeral=True)
+    embed = ui_embed("OG Cards Catalogue", "Collect every rarity. Duplicate cards are allowed.")
+    for card in STARTER_CARDS:
+        embed.add_field(name=f"{card['rarity']} • {card['name']}", value=f"**OVR {card['ovr']}**  ·  {card['theme']}\nPAC {card['pac']}  ATK {card['atk']}  DEF {card['deff']}  SKL {card['skl']}", inline=True)
+    embed.add_field(name="Pack Odds", value="Common 50% · Rare 27% · Epic 15% · Legendary 7% · Mythic 1%", inline=False)
+    await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
 @cards.command(name="open", description="Open one earned card pack")
@@ -113,9 +147,11 @@ async def open_pack(interaction: discord.Interaction):
     if card is None:
         await interaction.response.send_message("You don't have an unopened pack. Use /cards profile to check progress.", ephemeral=True)
         return
-    colour = discord.Color.dark_red() if rarity in {"Epic", "Legendary", "Mythic"} else discord.Color.gold()
-    embed = discord.Embed(title="OG CARD PACK OPENED", description=card_text(card), color=colour)
-    embed.set_footer(text=f"{rarity} pull · Card instance #{card['instance_id']}")
+    colour = RARITY_COLOURS.get(rarity, discord.Color.dark_red())
+    embed = ui_embed("✦ CARD DISCOVERED ✦", card_text(card), colour)
+    embed.add_field(name="Card Number", value=f"**#{card['instance_id']}**", inline=True)
+    embed.add_field(name="Rarity", value=f"**{rarity.upper()}**", inline=True)
+    embed.add_field(name="Collection", value=f"Use `/cards collection` to view your cards.", inline=False)
     await interaction.response.send_message(embed=embed)
     if rarity in {"Epic", "Legendary", "Mythic"} and RARE_PULL_CHANNEL_ID.isdigit():
         channel = bot.get_channel(int(RARE_PULL_CHANNEL_ID))
@@ -150,6 +186,7 @@ async def trade_offer(interaction: discord.Interaction, member: discord.Member, 
         return
     a, b = result["proposer_card"], result["recipient_card"]
     embed = discord.Embed(title=f"OG Card Trade Offer #{result['trade_id']}", description=f"{interaction.user.mention} offers **#{a['instance_id']} {a['name']}** ({a['rarity']}, OVR {a['ovr']})\nfor **#{b['instance_id']} {b['name']}** ({b['rarity']}, OVR {b['ovr']}) from {member.mention}.\n\n{member.mention}, use /trade accept with ID {result['trade_id']} to accept or /trade cancel with the same ID to decline. Expires in 24 hours.", color=discord.Color.dark_red())
+    embed.set_footer(text=f"{BRAND}  •  Offer expires in 24 hours")
     await interaction.response.send_message(content=member.mention, embed=embed)
 
 @trades.command(name="incoming", description="View your pending incoming trade offers")
@@ -162,7 +199,10 @@ async def trade_incoming(interaction: discord.Interaction):
         await interaction.response.send_message("You have no pending trade offers.", ephemeral=True)
         return
     lines = [f"**#{t['trade_id']}** from <@{t['proposer_id']}>: **{t['offered_name']}** ({t['offered_rarity']}, OVR {t['offered_ovr']}) for your **{t['requested_name']}** ({t['requested_rarity']}, OVR {t['requested_ovr']}) — expires {t['expires_at']} UTC" for t in offers]
-    await interaction.response.send_message("\n".join(lines), ephemeral=True)
+    embed = ui_embed("Incoming Trade Offers", "Review each offer carefully before accepting.")
+    for offer in offers:
+        embed.add_field(name=f"Offer #{offer['trade_id']} • From <@{offer['proposer_id']}>", value=f"**They give:** {offer['offered_name']} · {offer['offered_rarity']} · OVR {offer['offered_ovr']}\n**They want:** {offer['requested_name']} · {offer['requested_rarity']} · OVR {offer['requested_ovr']}\nExpires: {offer['expires_at']} UTC", inline=False)
+    await interaction.response.send_message(embed=embed, ephemeral=True)
 
 @trades.command(name="accept", description="Accept an incoming card-for-card trade")
 @app_commands.describe(trade_id="Trade offer number")
