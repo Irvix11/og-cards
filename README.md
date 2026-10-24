@@ -15,7 +15,7 @@ A collectible trading-card bot for OG Clan.
 ## Commands
 - `/cards profile`, `/cards progress`, `/cards collection`, `/cards catalogue`, `/cards open`
 - `/trade offer`, `/trade incoming`, `/trade accept`, `/trade cancel`, `/trade history`
-- `/admin add-points`, `/admin audit-recent`
+- `/admin add-points`, `/admin audit-recent`, `/admin give-packs`, `/admin pack-audit`
 
 ## Run locally
 1. Install Python 3.11 or newer.
