@@ -1,0 +1,54 @@
+name: Deploy OG Cards to Oracle Cloud
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: og-cards-production
+  cancel-in-progress: false
+
+jobs:
+  test-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Compile Python files
+        run: python -m py_compile bot.py database.py tests/test_database.py
+
+      - name: Run database tests
+        run: python -m unittest discover -s tests -v
+
+      - name: Deploy over SSH
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.OG_VM_HOST }}
+          username: ${{ secrets.OG_VM_USER }}
+          key: ${{ secrets.OG_VM_SSH_KEY }}
+          fingerprint: ${{ secrets.OG_VM_HOST_FINGERPRINT }}
+          script_stop: true
+          script: |
+            set -eu
+            test -d /opt/og-cards
+            test -x /opt/og-cards/.venv/bin/python
+            cd /opt/og-cards
+            git fetch origin main
+            git reset --hard origin/main
+            .venv/bin/pip install --disable-pip-version-check -r requirements.txt
+            sudo systemctl restart og-cards
+            sleep 2
+            sudo systemctl is-active --quiet og-cards
+            echo "OG Cards deployment successful."
