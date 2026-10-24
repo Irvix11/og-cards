@@ -106,12 +106,12 @@ async def open_pack(interaction: discord.Interaction):
     if interaction.guild_id is None:
         await interaction.response.send_message("Use this command in the OG Clan server.", ephemeral=True)
         return
-    if not store.consume_pack(interaction.guild_id, interaction.user.id):
-        await interaction.response.send_message("You don't have an unopened pack. Use /cards profile to check progress.", ephemeral=True)
-        return
     rarity = roll_rarity()
     pool = [c for c in STARTER_CARDS if c["rarity"] == rarity]
-    card = store.add_card(interaction.guild_id, interaction.user.id, random.choice(pool))
+    card = store.open_pack_with_card(interaction.guild_id, interaction.user.id, random.choice(pool))
+    if card is None:
+        await interaction.response.send_message("You don't have an unopened pack. Use /cards profile to check progress.", ephemeral=True)
+        return
     embed = discord.Embed(title="OG CARD PACK OPENED", description=card_text(card), color=discord.Color.gold())
     embed.set_footer(text=f"{rarity} pull · Card instance #{card['instance_id']}")
     await interaction.response.send_message(embed=embed)
