@@ -138,12 +138,35 @@ class CardStore:
                 (guild_id,user_id,card["name"],card["rarity"],card["theme"],card["edition"],card["ovr"],card["pac"],card["atk"],card["deff"],card["skl"]))
             return {"instance_id": cur.lastrowid, **card}
 
-    def get_collection(self, guild_id: int | None, user_id: int, limit: int = 15) -> list[dict[str, Any]]:
-        if guild_id is None:
+    def get_collection(self, guild_id: int | None, user_id: int, limit: int = 15, offset: int = 0) -> list[dict[str, Any]]:
+        if guild_id is None or limit < 1 or offset < 0:
             return []
         with self.connect() as db:
-            rows = db.execute("SELECT * FROM card_instances WHERE guild_id=? AND owner_id=? ORDER BY instance_id DESC LIMIT ?", (guild_id,user_id,limit)).fetchall()
+            rows = db.execute(
+                "SELECT * FROM card_instances WHERE guild_id=? AND owner_id=? ORDER BY instance_id DESC LIMIT ? OFFSET ?",
+                (guild_id, user_id, limit, offset),
+            ).fetchall()
             return [dict(row) for row in rows]
+
+    def get_card(self, guild_id: int | None, owner_id: int, instance_id: int) -> dict[str, Any] | None:
+        if guild_id is None:
+            return None
+        with self.connect() as db:
+            row = db.execute(
+                "SELECT * FROM card_instances WHERE guild_id=? AND owner_id=? AND instance_id=?",
+                (guild_id, owner_id, instance_id),
+            ).fetchone()
+            return dict(row) if row else None
+
+    def count_cards(self, guild_id: int | None, user_id: int) -> int:
+        if guild_id is None:
+            return 0
+        with self.connect() as db:
+            row = db.execute(
+                "SELECT COUNT(*) AS n FROM card_instances WHERE guild_id=? AND owner_id=?",
+                (guild_id, user_id),
+            ).fetchone()
+            return int(row["n"])
 
     def get_recent_audit(self, guild_id: int | None, limit: int = 10) -> list[dict[str, Any]]:
         if guild_id is None:
@@ -211,6 +234,7 @@ class CardStore:
             expired = db.execute("SELECT datetime(?) <= datetime('now')", (trade["expires_at"],)).fetchone()[0]
             if expired:
                 db.execute("UPDATE trades SET status='expired',completed_at=CURRENT_TIMESTAMP WHERE trade_id=?", (trade_id,))
+                db.commit()
                 raise ValueError("That trade has expired.")
             a = db.execute("SELECT * FROM card_instances WHERE guild_id=? AND instance_id=? AND owner_id=?",
                            (guild_id, trade["proposer_card_id"], trade["proposer_id"])).fetchone()
@@ -218,6 +242,7 @@ class CardStore:
                            (guild_id, trade["recipient_card_id"], trade["recipient_id"])).fetchone()
             if a is None or b is None:
                 db.execute("UPDATE trades SET status='cancelled',completed_at=CURRENT_TIMESTAMP WHERE trade_id=?", (trade_id,))
+                db.commit()
                 raise ValueError("A card is no longer owned by the expected member; the trade was cancelled.")
             db.execute("UPDATE card_instances SET owner_id=? WHERE instance_id=?", (trade["recipient_id"], trade["proposer_card_id"]))
             db.execute("UPDATE card_instances SET owner_id=? WHERE instance_id=?", (trade["proposer_id"], trade["recipient_card_id"]))
