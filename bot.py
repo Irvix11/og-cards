@@ -116,19 +116,40 @@ async def progress(interaction: discord.Interaction):
     await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
-@cards.command(name="collection", description="View your collection or another member's collection")
-@app_commands.describe(member="Optional member whose collection you want to view")
-async def collection(interaction: discord.Interaction, member: discord.Member | None = None):
+@cards.command(name="collection", description="View a page of your collection or another member's")
+@app_commands.describe(member="Optional member whose collection you want to view", page="Collection page (15 cards per page)")
+async def collection(interaction: discord.Interaction, member: discord.Member | None = None, page: app_commands.Range[int, 1, 100] = 1):
     target = member or interaction.user
-    items = store.get_collection(interaction.guild_id, target.id)
-    embed = ui_embed(f"{target.display_name}'s Card Collection", f"Showing up to {len(items)} most recent card(s).")
+    total = store.count_cards(interaction.guild_id, target.id)
+    items = store.get_collection(interaction.guild_id, target.id, limit=15, offset=(page - 1) * 15)
+    if page > max(1, (total + 14) // 15):
+        await interaction.response.send_message(f"That page doesn't exist. {target.display_name} has {total} card(s).", ephemeral=True)
+        return
+    embed = ui_embed(f"{target.display_name}'s Card Collection", f"Page **{page}** · **{total}** card(s) total")
     embed.set_thumbnail(url=target.display_avatar.url)
     if not items:
         embed.description = "No cards collected yet. Earn points, unlock a pack, and start building your collection."
     else:
-        for card in items[:15]:
+        for card in items:
             embed.add_field(name=f"#{card['instance_id']} • {card['name']}", value=f"{card['rarity']}  ·  **OVR {card['ovr']}**\n{card['theme']} · {card['edition']}", inline=True)
+    embed.set_footer(text=f"{BRAND}  •  Use /cards collection page:{page + 1} for the next page")
     await interaction.response.send_message(embed=embed, ephemeral=(member is None))
+
+
+@cards.command(name="card", description="Inspect one of your cards by its instance ID")
+@app_commands.describe(card_id="The # number shown in your collection")
+async def card_detail(interaction: discord.Interaction, card_id: app_commands.Range[int, 1, 100000000]):
+    card = store.get_card(interaction.guild_id, interaction.user.id, card_id)
+    if card is None:
+        await interaction.response.send_message("You don't own a card with that ID. Check /cards collection.", ephemeral=True)
+        return
+    colour = RARITY_COLOURS.get(card["rarity"], discord.Color.dark_red())
+    embed = ui_embed(f"✦ {card['name']} ✦", f"**{card['rarity'].upper()}** · {card['theme']} · {card['edition']}", colour)
+    embed.add_field(name="Overall Rating", value=f"**{card['ovr']} OVR**", inline=False)
+    embed.add_field(name="Stats", value=f"PAC **{card['pac']}**  ·  ATK **{card['atk']}**  ·  DEF **{card['deff']}**  ·  SKL **{card['skl']}**", inline=False)
+    embed.add_field(name="Card ID", value=f"**#{card['instance_id']}**", inline=True)
+    embed.set_footer(text=f"{BRAND}  •  Card ownership is tied to this instance ID")
+    await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
 @cards.command(name="catalogue", description="Browse the starter card catalogue")
