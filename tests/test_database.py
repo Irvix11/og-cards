@@ -36,6 +36,17 @@ class CardStoreTests(unittest.TestCase):
         self.assertTrue(self.store.consume_pack(5, 6))
         self.assertFalse(self.store.consume_pack(5, 6))
 
+    def test_open_pack_with_card_is_atomic_and_single_use(self):
+        card = STARTER_CARDS[0]
+        self.store.credit_points(8, 9, POINTS_PER_PACK, 7, "test")
+        opened = self.store.open_pack_with_card(8, 9, card)
+        self.assertIsNotNone(opened)
+        self.assertEqual(opened["name"], card["name"])
+        self.assertIsNone(self.store.open_pack_with_card(8, 9, card))
+        profile = self.store.get_profile(8, 9)
+        self.assertEqual(profile["packs"], 0)
+        self.assertEqual(profile["card_count"], 1)
+
     def test_duplicate_card_instances_are_allowed(self):
         card = STARTER_CARDS[0]
         first = self.store.add_card(3, 4, card)
