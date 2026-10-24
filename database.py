@@ -93,6 +93,31 @@ class CardStore:
             db.execute("UPDATE profiles SET packs=packs-1 WHERE guild_id=? AND user_id=?", (guild_id,user_id))
             return True
 
+
+    def open_pack_with_card(self, guild_id: int, user_id: int, card: dict[str, Any]) -> dict[str, Any] | None:
+        """Consume a pack and insert its card in one transaction, preventing lost packs."""
+        with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            self._ensure_profile(db, guild_id, user_id)
+            profile = db.execute(
+                "SELECT packs FROM profiles WHERE guild_id=? AND user_id=?",
+                (guild_id, user_id),
+            ).fetchone()
+            if profile["packs"] < 1:
+                return None
+            db.execute(
+                "UPDATE profiles SET packs=packs-1 WHERE guild_id=? AND user_id=?",
+                (guild_id, user_id),
+            )
+            cur = db.execute(
+                """INSERT INTO card_instances
+                (guild_id,owner_id,name,rarity,theme,edition,ovr,pac,atk,deff,skl)
+                VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
+                (guild_id,user_id,card["name"],card["rarity"],card["theme"],card["edition"],
+                 card["ovr"],card["pac"],card["atk"],card["deff"],card["skl"]),
+            )
+            return {"instance_id": cur.lastrowid, **card}
+
     def add_card(self, guild_id: int, user_id: int, card: dict[str, Any]) -> dict[str, Any]:
         with self.connect() as db:
             cur = db.execute("""INSERT INTO card_instances(guild_id,owner_id,name,rarity,theme,edition,ovr,pac,atk,deff,skl)
