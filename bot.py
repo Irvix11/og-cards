@@ -308,6 +308,36 @@ async def add_points(interaction: discord.Interaction, member: discord.Member, a
 
 
 
+
+@admin.command(name="give-packs", description="Grant unopened card packs to a member")
+@admin_check()
+@app_commands.describe(member="Member receiving the packs", amount="Number of packs to grant (1–100)", reason="Reason for the grant")
+async def give_packs(interaction: discord.Interaction, member: discord.Member, amount: app_commands.Range[int, 1, 100], reason: str):
+    if interaction.guild_id is None:
+        await interaction.response.send_message("Use this command in the OG Clan server.", ephemeral=True)
+        return
+    total = store.grant_packs(interaction.guild_id, member.id, amount, interaction.user.id, reason[:300])
+    embed = ui_embed("OG Packs Granted", f"Granted **{amount} unopened pack(s)** to {member.mention}.")
+    embed.add_field(name="Unopened packs now", value=f"**{total}**", inline=True)
+    embed.add_field(name="Granted by", value=interaction.user.mention, inline=True)
+    embed.add_field(name="Reason", value=reason[:300], inline=False)
+    await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
+@admin.command(name="pack-audit", description="View recent admin pack grants")
+@admin_check()
+async def pack_audit(interaction: discord.Interaction):
+    entries = store.get_recent_pack_grants(interaction.guild_id)
+    if not entries:
+        await interaction.response.send_message("No admin pack grants recorded yet.", ephemeral=True)
+        return
+    lines = [
+        f"• <@{e['user_id']}> +{e['amount']} pack(s) by <@{e['actor_id']}> — {e['reason']} ({e['created_at']} UTC)"
+        for e in entries
+    ]
+    await interaction.response.send_message("**Recent OG Cards pack grants**\n" + "\n".join(lines), ephemeral=True)
+
+
 @admin.command(name="audit-recent", description="View recent point credits")
 @admin_check()
 async def audit_recent(interaction: discord.Interaction):
