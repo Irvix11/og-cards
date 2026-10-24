@@ -71,6 +71,29 @@ class CardStoreTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.store.accept_trade(10, offer["trade_id"], 99)
 
+
+    def test_card_lookup_and_collection_pagination(self):
+        cards = [self.store.add_card(4, 5, card) for card in STARTER_CARDS[:3]]
+        first_page = self.store.get_collection(4, 5, limit=2, offset=0)
+        second_page = self.store.get_collection(4, 5, limit=2, offset=2)
+        self.assertEqual(len(first_page), 2)
+        self.assertEqual(len(second_page), 1)
+        found = self.store.get_card(4, 5, cards[1]["instance_id"])
+        self.assertEqual(found["instance_id"], cards[1]["instance_id"])
+        self.assertIsNone(self.store.get_card(4, 99, cards[1]["instance_id"]))
+        self.assertEqual(self.store.count_cards(4, 5), 3)
+
+    def test_expired_trade_is_marked_expired_even_when_accept_fails(self):
+        a = self.store.add_card(10, 20, STARTER_CARDS[0])
+        b = self.store.add_card(10, 21, STARTER_CARDS[2])
+        offer = self.store.create_trade(10, 20, 21, a["instance_id"], b["instance_id"])
+        with self.store.connect() as db:
+            db.execute("UPDATE trades SET expires_at=datetime('now','-1 minute') WHERE trade_id=?", (offer["trade_id"],))
+        with self.assertRaisesRegex(ValueError, "expired"):
+            self.store.accept_trade(10, offer["trade_id"], 21)
+        history = self.store.get_trade_history(10, 20)
+        self.assertEqual(history[0]["status"], "expired")
+
     def test_duplicate_card_instances_are_allowed(self):
         card = STARTER_CARDS[0]
         first = self.store.add_card(3, 4, card)
