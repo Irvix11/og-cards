@@ -176,6 +176,14 @@ class CardStore:
             return [dict(row) for row in rows]
 
 
+    @staticmethod
+    def _expire_pending_trades(db: sqlite3.Connection, guild_id: int) -> None:
+        db.execute(
+            """UPDATE trades SET status='expired', completed_at=CURRENT_TIMESTAMP
+            WHERE guild_id=? AND status='pending' AND expires_at <= datetime('now')""",
+            (guild_id,),
+        )
+
     def _card_is_locked(self, db: sqlite3.Connection, guild_id: int, card_id: int) -> bool:
         row = db.execute(
             """SELECT 1 FROM trades WHERE guild_id=? AND status='pending'
@@ -190,6 +198,7 @@ class CardStore:
             raise ValueError("You cannot trade with yourself.")
         with self.connect() as db:
             db.execute("BEGIN IMMEDIATE")
+            self._expire_pending_trades(db, guild_id)
             offered = db.execute("SELECT * FROM card_instances WHERE guild_id=? AND instance_id=? AND owner_id=?",
                                  (guild_id, proposer_card_id, proposer_id)).fetchone()
             requested = db.execute("SELECT * FROM card_instances WHERE guild_id=? AND instance_id=? AND owner_id=?",
@@ -209,6 +218,7 @@ class CardStore:
 
     def get_incoming_trades(self, guild_id: int, user_id: int, limit: int = 10) -> list[dict[str, Any]]:
         with self.connect() as db:
+            self._expire_pending_trades(db, guild_id)
             rows = db.execute(
                 """SELECT t.*, a.name AS offered_name, a.rarity AS offered_rarity, a.ovr AS offered_ovr,
                 b.name AS requested_name, b.rarity AS requested_rarity, b.ovr AS requested_ovr
@@ -265,6 +275,7 @@ class CardStore:
 
     def get_trade_history(self, guild_id: int, user_id: int, limit: int = 10) -> list[dict[str, Any]]:
         with self.connect() as db:
+            self._expire_pending_trades(db, guild_id)
             rows = db.execute(
                 """SELECT * FROM trades WHERE guild_id=? AND (proposer_id=? OR recipient_id=?)
                 ORDER BY trade_id DESC LIMIT ?""", (guild_id, user_id, user_id, limit)
